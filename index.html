@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase Charging — AGV Warehouse Simulation</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --panel: #0f1318;
+    --border: #1e2530;
+    --phase-color: #00e5a0;
+    --std-color: #ff4d6d;
+    --neutral: #4a5568;
+    --text: #c8d6e8;
+    --dim: #4a5568;
+    --gold: #f5c542;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(18px, 3vw, 28px);
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    font-size: 11px;
+    color: var(--dim);
+    margin-bottom: 24px;
+    letter-spacing: 0.5px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    max-width: 1100px;
+  }
+
+  @media (max-width: 700px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .panel-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* Canvas panels */
+  canvas {
+    width: 100%;
+    border-radius: 4px;
+    display: block;
+  }
+
+  /* Stats grid */
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .stat {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+
+  .stat-label {
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    font-family: 'Syne', sans-serif;
+  }
+
+  .phase-val { color: var(--phase-color); }
+  .std-val   { color: var(--std-color); }
+
+  /* Controls */
+  .controls {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .ctrl-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100px;
+    height: 2px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--gold);
+    cursor: pointer;
+  }
+
+  button {
+    background: var(--phase-color);
+    color: #000;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: opacity 0.15s;
+  }
+  button:hover { opacity: 0.85; }
+  button.stop {
+    background: var(--std-color);
+    color: #fff;
+  }
+
+  .legend {
+    display: flex;
+    gap: 14px;
+    font-size: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; color: var(--dim); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Chart */
+  .chart-wrap {
+    grid-column: 1 / -1;
+  }
+
+  #chart {
+    width: 100%;
+    height: 120px;
+    display: block;
+  }
+
+  .insight {
+    grid-column: 1 / -1;
+    background: #0d1a12;
+    border: 1px solid #1a3a25;
+    border-radius: 6px;
+    padding: 14px 16px;
+    font-size: 11px;
+    line-height: 1.7;
+    color: #7ecfa0;
+  }
+
+  .insight strong { color: var(--phase-color); }
+</style>
+</head>
+<body>
+
+<h1>Phase Charging Scheduler</h1>
+<p class="subtitle">AGV WAREHOUSE · HURWITZ 1/φ vs CENTRALISED QUEUE · Nicolae Pascal 2026</p>
+
+<div class="layout">
+
+  <!-- Controls -->
+  <div class="controls panel">
+    <div class="ctrl-group">
+      <span>Robots</span>
+      <input type="range" id="nRobots" min="4" max="30" value="12">
+      <span id="nRobotsVal">12</span>
+    </div>
+    <div class="ctrl-group">
+      <span>Stations</span>
+      <input type="range" id="nStations" min="1" max="6" value="3">
+      <span id="nStationsVal">3</span>
+    </div>
+    <div class="ctrl-group">
+      <span>Speed</span>
+      <input type="range" id="simSpeed" min="1" max="8" value="3">
+    </div>
+    <button id="btn">▶ RUN</button>
+  </div>
+
+  <!-- Phase canvas -->
+  <div class="panel">
+    <div class="panel-title">
+      <div class="dot" style="background:var(--phase-color)"></div>
+      Phase Scheduler — O(n log n)
+    </div>
+    <canvas id="phaseCanvas" width="460" height="260"></canvas>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Collisions</div>
+        <div class="stat-value phase-val" id="pCollisions">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Idle time</div>
+        <div class="stat-value phase-val" id="pIdle">0%</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Ops/frame</div>
+        <div class="stat-value phase-val" id="pOps">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Throughput</div>
+        <div class="stat-value phase-val" id="pThroughput">0</div>
+      </div>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Cruising</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f5c542"></div>Charging</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ff4d6d"></div>Collision</div>
+    </div>
+  </div>
+
+  <!-- Standard canvas -->
+  <div class="panel">
+    <div class="panel-title">
+      <div class="dot" style="background:var(--std-color)"></div>
+      Central Queue — O(n²)
+    </div>
+    <canvas id="stdCanvas" width="460" height="260"></canvas>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Collisions</div>
+        <div class="stat-value std-val" id="sCollisions">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Idle time</div>
+        <div class="stat-value std-val" id="sIdle">0%</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Ops/frame</div>
+        <div class="stat-value std-val" id="sOps">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Throughput</div>
+        <div class="stat-value std-val" id="sThroughput">0</div>
+      </div>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#ff4d6d"></div>Cruising</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f5c542"></div>Charging</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#888"></div>Waiting in queue</div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="panel chart-wrap">
+    <div class="panel-title">Collision rate over time</div>
+    <canvas id="chart" width="1000" height="120"></canvas>
+  </div>
+
+  <!-- Insight -->
+  <div class="insight">
+    <strong>How it works:</strong>
+    Each robot receives phase θᵢ = (i · 1/φ) mod 1.
+    Its charging window opens when the global clock phase matches θᵢ.
+    No queue, no arbiter, no robot-to-robot messages.
+    Separation guaranteed by the Three-Distance Theorem — collisions at the
+    charging station are mathematically impossible under uniform timing.
+    Complexity per cycle: <strong>O(n log n)</strong> vs <strong>O(n²)</strong> for the central queue.
+  </div>
+
+</div>
+
+<script>
+const PHI = (1 + Math.sqrt(5)) / 2;
+const ALPHA = 1.0 / PHI;
+
+let running = false;
+let animId = null;
+let tick = 0;
+
+// Chart history
+const HIST = 120;
+let pHistory = new Array(HIST).fill(0);
+let sHistory = new Array(HIST).fill(0);
+
+function getParams() {
+  return {
+    n: +document.getElementById('nRobots').value,
+    m: +document.getElementById('nStations').value,
+    speed: +document.getElementById('simSpeed').value,
+  };
+}
+
+// ── Phase simulation state ─────────────────────────────────────────────
+function makePhaseState(n, m) {
+  const robots = [];
+  for (let i = 0; i < n; i++) {
+    robots.push({
+      phase: (i * ALPHA) % 1.0,
+      charging: false,
+      idleTicks: 0,
+    });
+  }
+  return { robots, collisions: 0, charges: 0, totalTicks: 0, m };
+}
+
+function stepPhase(state, dt) {
+  const { robots, m } = state;
+  const n = robots.length;
+  const windowSize = 1.0 / n * 1.5;
+  const clockPhase = (tick * dt * 0.05) % 1.0;
+
+  // Sort by phase — O(n log n)
+  const sorted = [...robots].sort((a, b) => a.phase - b.phase);
+
+  // Count how many are currently charging
+  let charging = 0;
+  robots.forEach(r => { if (r.charging) charging++; });
+
+  let collisions = 0;
+
+  robots.forEach((r, i) => {
+    const gap = ((r.phase - clockPhase) + 1.0) % 1.0;
+    const inWindow = gap < windowSize;
+
+    if (inWindow && charging < m) {
+      r.charging = true;
+      charging++;
+    } else if (!inWindow) {
+      r.charging = false;
+    }
+
+    if (!r.charging) r.idleTicks++;
+  });
+
+  // Check phase gaps for collisions — O(n)
+  for (let k = 0; k < n; k++) {
+    const a = sorted[k].phase;
+    const b = sorted[(k + 1) % n].phase;
+    const gap = (b - a + 1.0) % 1.0;
+    if (gap < 0.5 / n) collisions++;
+  }
+
+  state.collisions += collisions;
+  state.charges += robots.filter(r => r.charging).length;
+  state.totalTicks++;
+  return collisions;
+}
+
+// ── Standard (queue) simulation state ─────────────────────────────────
+function makeStdState(n, m) {
+  const robots = [];
+  for (let i = 0; i < n; i++) {
+    robots.push({
+      phase: (i * ALPHA) % 1.0,
+      charging: false,
+      waiting: false,
+      idleTicks: 0,
+      priority: Math.random(),
+    });
+  }
+  return { robots, collisions: 0, charges: 0, totalTicks: 0, m };
+}
+
+function stepStd(state, dt) {
+  const { robots, m } = state;
+  const n = robots.length;
+  let collisions = 0;
+  let ops = 0;
+
+  // Advance phases
+  robots.forEach(r => {
+    r.phase = (r.phase + 0.05 * dt) % 1.0;
+  });
+
+  // O(n²) all-pairs check — the expensive part
+  const needsCharge = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      ops++;
+      const d = Math.abs(robots[i].phase - robots[j].phase);
+      const gap = Math.min(d, 1 - d);
+      if (gap < 0.5 / n) collisions++;
+    }
+  }
+
+  // Simple queue: pick by priority
+  const sorted = [...robots].sort((a, b) => a.priority - b.priority);
+  let slots = m;
+  sorted.forEach(r => {
+    if (slots > 0 && Math.random() < 0.15) {
+      r.charging = true;
+      r.waiting = false;
+      slots--;
+    } else if (slots === 0 && Math.random() < 0.1) {
+      r.charging = false;
+      r.waiting = true;
+      r.idleTicks++;
+    } else if (r.charging && Math.random() < 0.05) {
+      r.charging = false;
+    }
+    if (!r.charging && !r.waiting) r.idleTicks++;
+  });
+
+  state.collisions += collisions;
+  state.charges += robots.filter(r => r.charging).length;
+  state.totalTicks++;
+  return collisions;
+}
+
+// ── Drawing ────────────────────────────────────────────────────────────
+function drawSim(canvas, robots, type, m) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#080a0d';
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W / 2, cy = H / 2;
+  const orbitR = Math.min(W, H) * 0.36;
+  const stationR = Math.min(W, H) * 0.12;
+
+  // Orbit ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, orbitR, 0, Math.PI * 2);
+  ctx.strokeStyle = '#1a2030';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Stations
+  for (let s = 0; s < m; s++) {
+    const ang = (s / m) * Math.PI * 2 - Math.PI / 2;
+    const sx = cx + Math.cos(ang) * stationR;
+    const sy = cy + Math.sin(ang) * stationR;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+    ctx.fillStyle = '#1a2a1a';
+    ctx.strokeStyle = '#f5c54240';
+    ctx.lineWidth = 1.5;
+    ctx.fill();
+    ctx.stroke();
+    // Lightning bolt
+    ctx.fillStyle = '#f5c542';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚡', sx, sy);
+  }
+
+  // Robots
+  const n = robots.length;
+  robots.forEach((r, i) => {
+    const ang = r.phase * Math.PI * 2 - Math.PI / 2;
+    const rx = cx + Math.cos(ang) * orbitR;
+    const ry = cy + Math.sin(ang) * orbitR;
+
+    // Trail
+    ctx.beginPath();
+    ctx.arc(rx, ry, 14, 0, Math.PI * 2);
+    if (r.charging) {
+      ctx.fillStyle = '#f5c54215';
+    } else if (type === 'std' && r.waiting) {
+      ctx.fillStyle = '#88888815';
+    } else {
+      ctx.fillStyle = type === 'phase' ? '#00e5a015' : '#ff4d6d15';
+    }
+    ctx.fill();
+
+    // Body
+    ctx.beginPath();
+    ctx.arc(rx, ry, 7, 0, Math.PI * 2);
+    if (r.charging) {
+      ctx.fillStyle = '#f5c542';
+    } else if (type === 'std' && r.waiting) {
+      ctx.fillStyle = '#555';
+    } else {
+      ctx.fillStyle = type === 'phase' ? '#00e5a0' : '#ff4d6d';
+    }
+    ctx.fill();
+
+    // ID
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 7px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(i, rx, ry);
+  });
+
+  // Center label
+  ctx.fillStyle = '#1e2530';
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('WAREHOUSE', cx, cy - 8);
+  ctx.fillText(`${m} STATIONS`, cx, cy + 8);
+}
+
+function drawChart() {
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.fillStyle = '#080a0d';
+  ctx.fillRect(0, 0, W, H);
+
+  const maxVal = Math.max(...pHistory, ...sHistory, 1);
+  const step = W / HIST;
+
+  // Grid lines
+  ctx.strokeStyle = '#1e2530';
+  ctx.lineWidth = 0.5;
+  for (let y = 0; y <= 4; y++) {
+    const yy = H - (y / 4) * H;
+    ctx.beginPath();
+    ctx.moveTo(0, yy);
+    ctx.lineTo(W, yy);
+    ctx.stroke();
+  }
+
+  function drawLine(data, color) {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    data.forEach((v, i) => {
+      const x = i * step;
+      const y = H - (v / maxVal) * (H - 8) - 4;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  drawLine(sHistory, '#ff4d6d');
+  drawLine(pHistory, '#00e5a0');
+
+  // Labels
+  ctx.font = '9px JetBrains Mono, monospace';
+  ctx.fillStyle = '#00e5a0';
+  ctx.textAlign = 'left';
+  ctx.fillText('Phase', 6, 14);
+  ctx.fillStyle = '#ff4d6d';
+  ctx.fillText('Standard', 50, 14);
+}
+
+// ── Main loop ──────────────────────────────────────────────────────────
+let phaseState, stdState;
+
+function init() {
+  const { n, m } = getParams();
+  phaseState = makePhaseState(n, m);
+  stdState   = makeStdState(n, m);
+  tick = 0;
+  pHistory = new Array(HIST).fill(0);
+  sHistory = new Array(HIST).fill(0);
+}
+
+function loop() {
+  if (!running) return;
+  const { speed } = getParams();
+
+  for (let s = 0; s < speed; s++) {
+    const dt = 0.016;
+    const pC = stepPhase(phaseState, dt);
+    const sC = stepStd(stdState, dt);
+
+    if (tick % 8 === 0) {
+      pHistory.push(pC);
+      pHistory.shift();
+      sHistory.push(sC);
+      sHistory.shift();
+    }
+    tick++;
+  }
+
+  const { n, m } = getParams();
+
+  // Draw
+  drawSim(document.getElementById('phaseCanvas'),
+          phaseState.robots, 'phase', m);
+  drawSim(document.getElementById('stdCanvas'),
+          stdState.robots, 'std', m);
+  drawChart();
+
+  // Stats
+  const pTotal = phaseState.totalTicks * n || 1;
+  const sTotal = stdState.totalTicks   * n || 1;
+  document.getElementById('pCollisions').textContent = phaseState.collisions;
+  document.getElementById('sCollisions').textContent = stdState.collisions;
+  document.getElementById('pIdle').textContent =
+    Math.round(phaseState.robots.reduce((a,r)=>a+r.idleTicks,0) / pTotal * 100) + '%';
+  document.getElementById('sIdle').textContent =
+    Math.round(stdState.robots.reduce((a,r)=>a+r.idleTicks,0) / sTotal * 100) + '%';
+  document.getElementById('pOps').textContent =
+    Math.round(n * Math.log2(n || 1));
+  document.getElementById('sOps').textContent =
+    Math.round(n * (n - 1) / 2);
+  document.getElementById('pThroughput').textContent = phaseState.charges;
+  document.getElementById('sThroughput').textContent = stdState.charges;
+
+  animId = requestAnimationFrame(loop);
+}
+
+// ── Controls ───────────────────────────────────────────────────────────
+document.getElementById('btn').addEventListener('click', () => {
+  if (!running) {
+    running = true;
+    init();
+    document.getElementById('btn').textContent = '■ STOP';
+    document.getElementById('btn').classList.add('stop');
+    loop();
+  } else {
+    running = false;
+    cancelAnimationFrame(animId);
+    document.getElementById('btn').textContent = '▶ RUN';
+    document.getElementById('btn').classList.remove('stop');
+  }
+});
+
+['nRobots','nStations'].forEach(id => {
+  const el = document.getElementById(id);
+  const val = document.getElementById(id + 'Val');
+  el.addEventListener('input', () => {
+    val.textContent = el.value;
+    if (running) { init(); }
+  });
+});
+
+// Initial draw
+init();
+drawSim(document.getElementById('phaseCanvas'), phaseState.robots, 'phase', getParams().m);
+drawSim(document.getElementById('stdCanvas'),   stdState.robots,   'std',   getParams().m);
+drawChart();
+</script>
+</body>
+</html>
